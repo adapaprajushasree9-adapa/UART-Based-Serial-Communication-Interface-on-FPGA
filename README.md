@@ -1,84 +1,90 @@
-# UART Echo System on Basys 3 FPGA
+# UART-Based Serial Communication Interface on FPGA
 
 ## Overview
 
-This project implements a UART (Universal Asynchronous Receiver Transmitter) Echo System on the Basys 3 FPGA using Verilog HDL. The design receives serial data from a PC through UART, displays the received byte on the onboard LEDs, and immediately transmits the same byte back to the sender.
+This project implements a UART (Universal Asynchronous Receiver Transmitter) based serial communication interface on the Basys 3 FPGA using Verilog HDL. The design enables reliable serial data exchange between a PC and FPGA through a USB-UART connection.
 
-The system consists of a Baud Rate Generator, UART Receiver, UART Transmitter, and a Top-Level Echo Controller. The design was verified through simulation and validated on FPGA hardware using a USB-UART connection and a serial terminal.
+The system receives serial data from a terminal application, reconstructs the transmitted byte, displays the received data on onboard LEDs, and echoes the same data back to the sender. The receiver employs 16× oversampling to improve sampling accuracy and robustness during data reception.
 
 ---
 
-## Features
+## Key Features
 
 - UART Receiver (RX) implementation
 - UART Transmitter (TX) implementation
 - UART Echo functionality
-- Baud rate generation from 100 MHz system clock
-- 16× oversampling in receiver for reliable data sampling
-- Received data displayed on onboard LEDs
+- 9600 baud communication
+- 16× oversampling receiver
+- LED display of received data
+- Finite State Machine (FSM) based design
 - FPGA implementation on Basys 3
 - Real-time serial communication with PC terminal
-- FSM-based UART design
+
+---
+
+## System Specifications
+
+| Parameter | Value |
+|------------|---------|
+| FPGA Board | Basys 3 |
+| FPGA Device | Xilinx Artix-7 |
+| System Clock | 100 MHz |
+| Baud Rate | 9600 bps |
+| Data Bits | 8 |
+| Parity | None |
+| Stop Bits | 1 |
+| Oversampling Rate | 16× |
 
 ---
 
 ## System Architecture
 
 ```text
-                +------------------+
-                | Baud Generator   |
-                +--------+---------+
-                         |
-              +----------+----------+
-              |                     |
-           tx_en                rx_en
-              |                     |
-              v                     v
+                    +------------------+
+                    | Baud Generator   |
+                    +--------+---------+
+                             |
+                  +----------+----------+
+                  |                     |
+               tx_en                rx_en
+                  |                     |
+                  v                     v
 
-      +---------------+     +---------------+
-      | UART TX       |     | UART RX       |
-      | Transmitter   |     | Receiver      |
-      +-------+-------+     +-------+-------+
-              ^                     |
-              |                     |
-              |                 rx_data
-              |                 rx_done
-              |                     |
-              +----------+----------+
-                         |
-                         v
-                 UART Echo Logic
-                         |
-                         v
-                       LEDs
+          +---------------+     +---------------+
+          | UART TX       |     | UART RX       |
+          | Transmitter   |     | Receiver      |
+          +-------+-------+     +-------+-------+
+                  ^                     |
+                  |                     |
+                  |                 rx_data
+                  |                 rx_done
+                  |                     |
+                  +----------+----------+
+                             |
+                             v
+                      Echo Controller
+                             |
+                             v
+                            LEDs
 ```
 
 ---
 
-## Module Description
+## Design Modules
 
-### 1. Baud Generator
+### Baud Generator
 
-Generates enable pulses required for UART transmission and reception.
+The baud generator derives UART timing signals from the 100 MHz FPGA clock.
 
-#### Functionality
-
-- Uses the 100 MHz Basys 3 clock as input.
-- Generates transmit enable pulse (`tx_en`).
-- Generates receive enable pulse (`rx_en`) for 16× oversampling.
-
-#### Counter Values
-
-| Signal | Counter Value | Purpose |
-|---------|--------------|----------|
-| tx_en | 10416 | UART transmit baud tick |
-| rx_en | 650 | 16× oversampling tick |
+**Functions:**
+- Generates transmit enable pulse (`tx_en`) for 9600 baud transmission.
+- Generates receive enable pulse (`rx_en`) for 16× oversampling during reception.
 
 ---
 
-### 2. UART Transmitter
+### UART Transmitter
 
-Implements UART serial data transmission using a finite state machine.
+The transmitter converts parallel data into serial format and sends it through the UART TX line.
 
 #### FSM States
 
@@ -86,27 +92,29 @@ Implements UART serial data transmission using a finite state machine.
 IDLE → START → DATA → STOP → IDLE
 ```
 
-#### Transmission Format
+#### Frame Format
 
-- Start Bit : 0
-- Data Bits : 8
-- Parity : None
-- Stop Bit : 1
+```text
+Start Bit : 0
+Data Bits : 8
+Parity    : None
+Stop Bit  : 1
+```
 
 #### Operation
 
 1. Waits for `tx_start`.
-2. Loads parallel data into a shift register.
-3. Sends start bit.
-4. Transmits 8 data bits (LSB first).
-5. Sends stop bit.
-6. Asserts `tx_done` after successful transmission.
+2. Loads the input byte.
+3. Transmits the start bit.
+4. Sends 8 data bits (LSB first).
+5. Transmits the stop bit.
+6. Generates `tx_done` after successful transmission.
 
 ---
 
-### 3. UART Receiver
+### UART Receiver
 
-Receives serial UART data and reconstructs the original byte.
+The receiver reconstructs serial data received through the UART RX line.
 
 #### FSM States
 
@@ -114,87 +122,63 @@ Receives serial UART data and reconstructs the original byte.
 IDLE → START → DATA → STOP → IDLE
 ```
 
-#### Reception Method
+#### Operation
 
-- Detects start bit.
-- Uses 16× oversampling.
-- Samples the start bit at its midpoint.
-- Samples each data bit after 16 oversampling ticks.
-- Stores received bits into a data register.
-- Verifies stop bit.
-- Generates `rx_done` when reception completes.
+1. Detects the falling edge of the start bit.
+2. Verifies the start bit using midpoint sampling.
+3. Samples incoming data using 16× oversampling.
+4. Stores received bits into a data register.
+5. Verifies the stop bit.
+6. Transfers the received byte to `rx_data`.
+7. Generates `rx_done` upon successful reception.
 
 ---
 
-### 4. UART Echo Top Module
+### Top-Level Echo Controller
 
-Integrates the baud generator, UART receiver, and UART transmitter.
+The top module integrates all UART subsystems.
 
-#### Functionality
-
-- Receives UART data from PC.
-- Displays received byte on LEDs.
-- Sends the received byte back through UART.
+**Functions:**
+- Receives incoming UART data.
+- Displays received data on LEDs.
+- Automatically transmits the received byte back to the sender.
 - Generates a one-clock-cycle transmit start pulse.
 
-#### Echo Operation
+---
+
+## UART Echo Operation
 
 ```text
-PC -----> FPGA
+PC Terminal
+     |
+     |  Serial Data
+     v
 
-Receive Byte
-      |
-Display on LEDs
-      |
-Transmit Same Byte
-      |
-FPGA -----> PC
++----------------+
+|  Basys 3 FPGA  |
++----------------+
+     |
+     |--> UART Receiver
+     |
+     |--> LED Display
+     |
+     |--> UART Transmitter
+     |
+     v
+
+Echoed Data Back To Terminal
 ```
 
 ---
 
-## UART Configuration
+## Hardware Validation
 
-| Parameter | Value |
-|------------|---------|
-| Clock Frequency | 100 MHz |
-| Baud Rate | 9600 bps |
-| Data Bits | 8 |
-| Parity | None |
-| Stop Bits | 1 |
-| Oversampling | 16× |
+The design was synthesized, implemented, and programmed onto the Basys 3 FPGA board.
 
----
+### Testing Procedure
 
-## Hardware Used
-
-- Basys 3 FPGA Board
-- Xilinx Artix-7 FPGA
-- USB-UART Interface
-- PC Serial Terminal (PuTTY)
-
----
-
-## Verification
-
-### Simulation
-
-The design was simulated to verify:
-
-- Start bit detection
-- Data reception
-- Data transmission
-- Stop bit validation
-- UART echo functionality
-
-### FPGA Testing
-
-The design was programmed onto the Basys 3 FPGA and tested using a serial terminal.
-
-#### Test Procedure
-
-1. Connect Basys 3 to the PC using USB.
-2. Open PuTTY.
+1. Connect the Basys 3 FPGA to the PC via USB.
+2. Open a serial terminal application (PuTTY).
 3. Select the appropriate COM port.
 4. Configure UART settings:
    - Baud Rate: 9600
@@ -202,9 +186,9 @@ The design was programmed onto the Basys 3 FPGA and tested using a serial termin
    - Parity: None
    - Stop Bits: 1
 5. Type characters in the terminal.
-6. Observe:
-   - Characters echoed back to the terminal.
-   - Corresponding ASCII value displayed on LEDs.
+6. Verify:
+   - Characters are echoed back correctly.
+   - LEDs display the received ASCII value.
 
 ---
 
@@ -219,26 +203,30 @@ uart_echo_top.v
 
 ---
 
-## Learning Outcomes
+## Simulation and Verification
 
-- UART protocol implementation
-- FSM-based digital design
-- Serial communication concepts
-- Baud rate generation
-- Oversampling techniques in UART receivers
-- FPGA hardware validation
-- Verilog HDL design methodology
+The design was verified through simulation to validate:
+
+- Baud generation
+- Start bit detection
+- Data reception
+- Data transmission
+- Stop bit validation
+- UART echo functionality
+
+Waveform analysis was performed to confirm correct UART frame generation and reception.
 
 ---
 
-## Future Enhancements
+## Learning Outcomes
 
-- Configurable baud rates
-- UART FIFO buffers
-- Parity generation and checking
-- Framing error detection
-- Interrupt-driven communication
-- Full-duplex UART communication framework
+- UART protocol implementation
+- Serial communication principles
+- Finite State Machine (FSM) design
+- Baud rate generation techniques
+- UART oversampling methodology
+- FPGA-based hardware verification
+- Verilog HDL based digital design
 
 ---
 
@@ -252,8 +240,21 @@ uart_echo_top.v
 
 ---
 
+## Future Improvements
+
+- Configurable baud rate selection
+- UART FIFO buffering
+- Parity bit generation and checking
+- Framing error detection
+- Interrupt-driven communication
+- Full-duplex communication extensions
+
+---
+
 ## Author
 
-**Adapa Prajusha Sree**  
+**Sree**  
 B.Tech, Electronics and Communication Engineering  
 Indian Institute of Technology Bhubaneswar
+
+This project demonstrates the complete implementation of a UART-based serial communication interface on FPGA, including serial data reception, transmission, baud rate generation, and real-time echo functionality.
