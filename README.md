@@ -254,8 +254,6 @@ uart_echo_top.v
 
 ## Author
 
-**Sree**  
+**Adapa Prajusha Sree**  
 B.Tech, Electronics and Communication Engineering  
 Indian Institute of Technology Bhubaneswar
-
-This project demonstrates the implementation of a UART communication system in Verilog HDL, including serial reception, transmission, and real-time echo functionality on FPGA hardware.
